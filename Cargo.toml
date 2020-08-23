@@ -1,5 +1,5 @@
 [package]
-authors = ["Michael Lass <michael.lass@uni-paderborn.de>"]
+authors = ["Michael Lass <bevan@bi-co.net>"]
 categories = ["data-structures", "memory-management"]
 description = "Traits and implementations for the allocation of aligned heap memory"
 edition = "2018"
