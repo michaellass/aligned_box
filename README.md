@@ -11,17 +11,17 @@ aligned_box provides traits and implementations for the allocation of aligned he
 Place value 17 of type `i32` on the heap, aligned to 64 bytes:
 ```rust
 use aligned_box::AlignedBox;
-let b = Box::<i32>::new_aligned(64, 17);
+let b = AlignedBox::<i32>::new(64, 17);
 ```
 
 Allocate memory for 1024 values of type `f32` on the heap, aligned to 128 bytes. Values are initialized by their default value:
 ```rust
-use aligned_box::AlignedBoxedSliceFromDefault;
-let b = Box::<[f32]>::new_aligned_slice_from_default(128, 1024);
+use aligned_box::AlignedBox;
+let b = AlignedBox::<[f32]>::slice_from_default(128, 1024);
 ```
 
 Allocate memory for 1024 values of type `f32` on the heap, aligned to 128 bytes. All values are initialized with PI:
 ```rust
-use aligned_box::AlignedBoxedSliceFromValue;
-let b = Box::<[f32]>::new_aligned_slice_from_value(128, 1024, std::f32::consts::PI);
+use aligned_box::AlignedBox;
+let b = AlignedBox::<[f32]>::slice_from_value(128, 1024, std::f32::consts::PI);
 ```
