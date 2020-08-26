@@ -63,6 +63,29 @@ impl<T: ?Sized> Drop for AlignedBox<T> {
     }
 }
 
+impl<T: Clone + ?Sized> Clone for AlignedBox<T> {
+    fn clone(&self) -> Self {
+        // layout is certainly valid as it has already been used to create self
+        let ptr = unsafe { std::alloc::alloc(self.layout) as *mut T };
+        if ptr.is_null() {
+            panic!("Error when allocating memory for a clone of AlignedBox");
+        }
+
+        // SAFETY: The pointer is non-null, refers to properly sized and aligned memory and it is
+        // consumed such that it cannot be used from anywhere outside the Box.
+        let mut b = unsafe { AlignedBox::<T>::from_raw_parts(ptr, self.layout) };
+
+        // *b is not a valid instance of T but uninitialized memory. We have to write to it without
+        // dropping the old (invalid) value. Also the original value must not be dropped.
+        // self.container is always Some, so we can just unwrap.
+        // SAFETY: *b points to valid and properly aligned memory and clone() also provides us with
+        // a valid value.
+        unsafe { std::ptr::write(&mut *b, *self.container.clone().unwrap()) };
+
+        b
+    }
+}
+
 impl<T: ?Sized> AlignedBox<T> {
     /// Decompose the `AlignedBox` into a raw pointer and the layout used during allocation.
     /// The caller of this function becomes responsible for proper deallocation of the memory
@@ -411,5 +434,23 @@ mod tests {
         let (ptr, layout) = AlignedBox::into_raw_parts(b);
         assert_eq!((ptr as usize) % std::mem::align_of::<LargeAlign>(), 0);
         let _ = unsafe { AlignedBox::from_raw_parts(ptr, layout) };
+    }
+
+    #[test]
+    fn clone() {
+        let _m = SEQ_TEST_MUTEX.read().unwrap();
+
+        let mut b = AlignedBox::new(128, vec![47, 11]).unwrap();
+        let mut another_b = b.clone();
+
+        assert_eq!(*b, *another_b);
+
+        b[0] = 48;
+        another_b[1] = 12;
+
+        assert_eq!(b[0], 48);
+        assert_eq!(b[1], 11);
+        assert_eq!(another_b[0], 47);
+        assert_eq!(another_b[1], 12);
     }
 }
