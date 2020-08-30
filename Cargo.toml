@@ -10,7 +10,7 @@ name = "aligned_box"
 publish = ["crates-io"]
 readme = "README.md"
 repository = "https://github.com/michaellass/aligned_box.git"
-version = "0.1.0"
+version = "0.2.0"
 
 [badges]
 travis-ci = { repository = "michaellass/aligned_box", branch = "master" }
