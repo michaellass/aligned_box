@@ -11,6 +11,8 @@ pub enum AlignedBoxError {
     TooManyElements,
     /// Memory allocation failed. This is likely caused by an out of memory situation.
     OutOfMemory,
+    /// Zero byte allocation are currently not supported by AlignedBox.
+    ZeroAlloc,
 }
 
 impl std::error::Error for AlignedBoxError {}
@@ -20,6 +22,7 @@ impl std::fmt::Display for AlignedBoxError {
         match self {
             AlignedBoxError::TooManyElements => write!(f, "Too many elements for a slice."),
             AlignedBoxError::OutOfMemory => write!(f, "Memory allocation failed. Out of memory?"),
+            AlignedBoxError::ZeroAlloc => write!(f, "Zero byte allocations not supported."),
         }
     }
 }
@@ -137,6 +140,10 @@ impl<T> AlignedBox<T> {
         }
 
         let memsize: usize = std::mem::size_of::<T>();
+        if memsize == 0 {
+            return Err(AlignedBoxError::ZeroAlloc.into());
+        }
+
         let layout = std::alloc::Layout::from_size_align(memsize, alignment)?;
 
         // SAFETY: Requirements on layout are enforced by using from_size_align().
@@ -187,6 +194,10 @@ impl<T: Default> AlignedBox<[T]> {
         }
 
         let memsize: usize = std::mem::size_of::<T>() * nelems;
+        if memsize == 0 {
+            return Err(AlignedBoxError::ZeroAlloc.into());
+        }
+
         let layout = std::alloc::Layout::from_size_align(memsize, alignment)?;
 
         // SAFETY: Requirements on layout are enforced by using from_size_align().
@@ -246,6 +257,10 @@ impl<T: Copy> AlignedBox<[T]> {
         }
 
         let memsize: usize = std::mem::size_of::<T>() * nelems;
+        if memsize == 0 {
+            return Err(AlignedBoxError::ZeroAlloc.into());
+        }
+
         let layout = std::alloc::Layout::from_size_align(memsize, alignment)?;
 
         // SAFETY: Requirements on layout are enforced by using from_size_align().
