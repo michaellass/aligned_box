@@ -4,8 +4,7 @@
 [![license](https://img.shields.io/github/license/michaellass/aligned_box.svg)](https://github.com/michaellass/aligned_box/blob/master/LICENSE)
 [![crates.io](https://img.shields.io/crates/v/aligned_box.svg)](https://crates.io/crates/aligned_box)
 
-aligned_box provides traits and implementations for the allocation of aligned heap memory. It adds new constructors to
-`std::boxed::Box` in order to do aligned allocations.
+This crate provides a wrapper around `std::boxed::Box` which allows allocating heap memory with user-specified alignment.
 
 ## Examples
 Place value 17 of type `i32` on the heap, aligned to 64 bytes:
