@@ -45,14 +45,14 @@ impl<T: ?Sized> std::ops::Deref for AlignedBox<T> {
 
     fn deref(&self) -> &T {
         // self.container is always Some, so we can just unwrap
-        return self.container.as_deref().unwrap();
+        self.container.as_deref().unwrap()
     }
 }
 
 impl<T: ?Sized> std::ops::DerefMut for AlignedBox<T> {
     fn deref_mut(&mut self) -> &mut T {
         // self.container is always Some, so we can just unwrap
-        return self.container.as_deref_mut().unwrap();
+        self.container.as_deref_mut().unwrap()
     }
 }
 
