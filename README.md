@@ -3,6 +3,7 @@
 [![build](https://travis-ci.com/michaellass/aligned_box.svg?branch=master)](https://travis-ci.com/michaellass/aligned_box)
 [![license](https://img.shields.io/github/license/michaellass/aligned_box.svg)](https://github.com/michaellass/aligned_box/blob/master/LICENSE)
 [![crates.io](https://img.shields.io/crates/v/aligned_box.svg)](https://crates.io/crates/aligned_box)
+[![docs.rs](https://docs.rs/aligned_box/badge.svg)](https://docs.rs/aligned_box)
 
 This crate provides a wrapper around `std::boxed::Box` which allows allocating heap memory with user-specified alignment.
 
