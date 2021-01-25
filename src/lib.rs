@@ -31,12 +31,7 @@ impl std::fmt::Display for AlignedBoxError {
 /// `AlignedBox<T>` consists of a `Box<T>` and the `std::alloc::Layout` that has been used to
 /// allocate the referenced memory.
 pub struct AlignedBox<T: ?Sized> {
-    // container is not a Box<T> but an Option<Box<T>> for purely technical reasons:
-    // When drop(&mut self) is called, we need to be able to get the raw pointer from the Box.
-    // Therefore we need to be able to take ownership of the Box. Option::take() allows that.
-    // The Option is Some as long as the AlignedBox exist. It is only set to None during drop()
-    // and into_raw_parts(). In both cases, the AlignedBox is destroyed directly afterwards.
-    container: std::option::Option<std::boxed::Box<T>>,
+    container: std::mem::ManuallyDrop<std::boxed::Box<T>>,
     layout: std::alloc::Layout,
 }
 
@@ -44,23 +39,23 @@ impl<T: ?Sized> std::ops::Deref for AlignedBox<T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        // self.container is always Some, so we can just unwrap
-        self.container.as_deref().unwrap()
+        &self.container
     }
 }
 
 impl<T: ?Sized> std::ops::DerefMut for AlignedBox<T> {
     fn deref_mut(&mut self) -> &mut T {
-        // self.container is always Some, so we can just unwrap
-        self.container.as_deref_mut().unwrap()
+        &mut self.container
     }
 }
 
 impl<T: ?Sized> Drop for AlignedBox<T> {
     fn drop(&mut self) {
-        // self.container is always Some, so we can just unwrap
-        let container = self.container.take().unwrap();
+        // SAFETY:
+        // * self.container is not used after taking the Box out of it
+        // * dealloc is called with layout that has been used for allocation earlier
         unsafe {
+            let container = std::mem::ManuallyDrop::take(&mut self.container);
             std::alloc::dealloc(std::boxed::Box::into_raw(container) as *mut u8, self.layout);
         }
     }
@@ -80,10 +75,9 @@ impl<T: Clone + ?Sized> Clone for AlignedBox<T> {
 
         // *b is not a valid instance of T but uninitialized memory. We have to write to it without
         // dropping the old (invalid) value. Also the original value must not be dropped.
-        // self.container is always Some, so we can just unwrap.
         // SAFETY: *b points to valid and properly aligned memory and clone() also provides us with
         // a valid value.
-        unsafe { std::ptr::write(&mut *b, (*self.container.as_deref().unwrap()).clone()) };
+        unsafe { std::ptr::write(&mut *b, (**self.container).clone()) };
 
         b
     }
@@ -95,8 +89,8 @@ impl<T: ?Sized> AlignedBox<T> {
     /// behind the pointer. This can for example be done by reconstructing the `AlignedBox` using
     /// `AlignedBox::from_raw_parts`.
     pub fn into_raw_parts(mut from: AlignedBox<T>) -> (*mut T, std::alloc::Layout) {
-        // self.container is always Some, so we can just unwrap
-        let container = from.container.take().unwrap();
+        // SAFETY: from.container is not used anymore afterwards
+        let container = unsafe { std::mem::ManuallyDrop::take(&mut from.container) };
         let ptr = std::boxed::Box::into_raw(container);
         let layout = from.layout;
         std::mem::forget(from); // AlignedBox::drop() must not be called
@@ -114,7 +108,7 @@ impl<T: ?Sized> AlignedBox<T> {
     /// behavior is undefined if the given layout does not correspond to the one used for
     /// allocation.
     pub unsafe fn from_raw_parts(ptr: *mut T, layout: std::alloc::Layout) -> AlignedBox<T> {
-        let container = Some(std::boxed::Box::from_raw(ptr));
+        let container = std::mem::ManuallyDrop::new(std::boxed::Box::from_raw(ptr));
         AlignedBox::<T> { container, layout }
     }
 }
