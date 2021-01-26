@@ -83,7 +83,7 @@ impl<T: Clone + ?Sized> Clone for AlignedBox<T> {
         // self.container is always Some, so we can just unwrap.
         // SAFETY: *b points to valid and properly aligned memory and clone() also provides us with
         // a valid value.
-        unsafe { std::ptr::write(&mut *b, *self.container.clone().unwrap()) };
+        unsafe { std::ptr::write(&mut *b, (*self.container.as_deref().unwrap()).clone()) };
 
         b
     }
