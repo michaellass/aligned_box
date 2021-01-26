@@ -468,4 +468,44 @@ mod tests {
         assert_eq!(another_b[0], 47);
         assert_eq!(another_b[1], 12);
     }
+
+    // Manual test to check for any leaks in new(), clone() and drop(). Run via
+    //  `RUST_MIN_STACK=120000000 RUST_MAX_STACK=120000000 cargo t --release clone_rss -- --nocapture --ignored`
+    // and at the same time watch the process memory use.
+    #[test]
+    #[ignore]
+    fn clone_rss() {
+        const SIZE: usize = 1024 * 1024 * 100; // 100MiB
+        const DELAY: u64 = 4;
+
+        #[repr(C)]
+        #[repr(align(1))]
+        #[derive(Copy, Clone)]
+        union BigThing {
+            a: u32,
+            b: [u8; SIZE],
+        }
+
+        assert_eq!(std::mem::size_of::<BigThing>(), SIZE);
+
+        let x = BigThing { a: 7 };
+        println!("100"); // Stack of this function
+        std::thread::sleep(std::time::Duration::from_secs(DELAY));
+
+        let b1 = AlignedBox::new(64, x).unwrap();
+        println!("200"); // Stack of this function + 1 element on heap
+        std::thread::sleep(std::time::Duration::from_secs(DELAY));
+
+        let b2 = b1.clone();
+        println!("300"); // Stack of this function + 2 elements on heap
+        std::thread::sleep(std::time::Duration::from_secs(DELAY));
+
+        drop(b2);
+        println!("200"); // Stack of this function + 1 element on heap
+        std::thread::sleep(std::time::Duration::from_secs(DELAY));
+
+        drop(b1);
+        println!("100"); // Stack of this function
+        std::thread::sleep(std::time::Duration::from_secs(DELAY));
+    }
 }
