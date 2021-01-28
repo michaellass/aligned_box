@@ -223,6 +223,94 @@ impl<T> AlignedBox<[T]> {
 
         Ok(b)
     }
+
+    // Resize the given AlignedBox<[T]> using std::alloc::realloc. Any newly allocated
+    // elements will be initialized using the initializer. In case the slice is to be
+    // shrunk but realloc fails, any elements that have been dropped are reinitialized
+    // using the initializer.
+    //
+    // # SAFETY
+    // The initializer function has to initialize the value behind the pointer without
+    // reading or dropping the old uninitialized value, e.g., using std::ptr::write.
+    #[allow(unused_unsafe)] // https://github.com/rust-lang/rfcs/pull/2585
+    unsafe fn realloc(
+        &mut self,
+        nelems: usize,
+        initializer: impl Fn(*mut T) -> (),
+    ) -> std::result::Result<(), std::boxed::Box<dyn std::error::Error>> {
+        // Make sure the requested amount of Ts will fit into a slice.
+        let maxelems = (isize::MAX as usize) / std::mem::size_of::<T>();
+        if nelems > maxelems {
+            return Err(AlignedBoxError::TooManyElements.into());
+        }
+
+        let memsize: usize = std::mem::size_of::<T>() * nelems;
+        if memsize == 0 {
+            return Err(AlignedBoxError::ZeroAlloc.into());
+        }
+
+        let old_nelems = self.container.len();
+        let new_layout = std::alloc::Layout::from_size_align(memsize, self.layout.align())?;
+
+        // SAFETY:
+        // * self.container is not used afterwards but re-assigned with a new
+        //   instance of std::mem::ManuallyDrop<std::boxed::Box> in all possible cases.
+        let b = unsafe { std::mem::ManuallyDrop::take(&mut self.container) };
+        let ptr = std::boxed::Box::into_raw(b);
+
+        // Drop any values that will be deallocated by realloc
+        for i in nelems..old_nelems {
+            // SAFETY:
+            // * (*ptr)[i] is valid for R/W, properly aligned and valid to drop
+            // * the element will not be read as it will either be re-initialized using
+            //   std::ptr::write or the slice behind ptr will not be used anymore.
+            std::ptr::drop_in_place(&mut (*ptr)[i]);
+        }
+
+        // SAFETY:
+        // * ptr has been assigned by the same (that is: global) allocator
+        // * layout has been used to allocate ptr
+        // * new_size > 0 has been explicitly checked before
+        // * due to the restrictions of a slice, memsize does not even overflow isize::MAX
+        let new_ptr =
+            unsafe { std::alloc::realloc(ptr as *mut u8, self.layout, memsize) as *mut T };
+
+        if new_ptr.is_null() {
+            // realloc failed. We need to restore a valid state and return an error.
+
+            // Reinitialize previously dropped values. The caller must ensure that
+            // initializer does not expect valid values behind ptr.
+            for i in nelems..old_nelems {
+                initializer(&mut (*ptr)[i]);
+            }
+
+            // SAFETY:
+            // * Nobody owns the memory behind ptr right now.
+            let b = unsafe { std::boxed::Box::from_raw(ptr) };
+            self.container = std::mem::ManuallyDrop::new(b);
+            return Err(AlignedBoxError::OutOfMemory.into());
+        }
+
+        // Initialize newly allocated values. The caller must ensure that
+        // initializer does not expect valid values behind ptr.
+        for i in old_nelems..nelems {
+            initializer(new_ptr.offset(i as isize));
+        }
+
+        // Create a new slice, a new Box and update layout.
+        // SAFETY:
+        // * new_ptr is non-null, nelems does not exceed the maximum size.
+        // * The referenced memory is not accessed via other pointers as long as slice exists.
+        // * All nelems values behind new_ptr are properly initialized.
+        let slice = unsafe { std::slice::from_raw_parts_mut(new_ptr, nelems) };
+        // SAFETY:
+        // * Nobody else references this slice or the ptr behind it.
+        let b = unsafe { std::boxed::Box::from_raw(slice) };
+        self.container = std::mem::ManuallyDrop::new(b);
+        self.layout = new_layout;
+
+        Ok(())
+    }
 }
 
 impl<T: Default> AlignedBox<[T]> {
@@ -257,6 +345,41 @@ impl<T: Default> AlignedBox<[T]> {
 
         Ok(b)
     }
+
+    /// Resize allocated memory to fit `nelem` values of type `T`. The original alignment requested
+    /// when creating the `AlignedBox` will still be obeyed. If `nelem` is larger than the current
+    /// amount of stored elements, the newly allocated elements will be initialized with the
+    /// default value of type `T`. If `nelem` is smaller than the current amount of stored elements,
+    /// any excess elements will be dropped. In case realloc fails, those dropped elements will be
+    /// reinitialized with the default value of type `T`.
+    ///
+    /// # Example
+    /// Create an AlignedBox::<[f32]> with 1024 elements. Extend to 2048 elements. Initialize all new
+    /// elements by the default value of f32, i.e., 0.0.
+    /// ```
+    /// use aligned_box::AlignedBox;
+    ///
+    /// let mut b = AlignedBox::<[f32]>::slice_from_default(128, 1024).unwrap();
+    /// b.realloc_with_default(2048);
+    /// ```
+    pub fn realloc_with_default(
+        &mut self,
+        nelems: usize,
+    ) -> std::result::Result<(), std::boxed::Box<dyn std::error::Error>> {
+        // SAFETY:
+        // * The initializer we pass to new_slice does not read or drop the value behind ptr.
+        unsafe {
+            self.realloc(nelems, |ptr: *mut T| {
+                let d = T::default(); // create new default value
+
+                // Write to ptr without dropping the old value. Also d must not be dropped.
+                // SAFETY: ptr points to valid and properly aligned memory.
+                std::ptr::write(ptr, d)
+            })?
+        };
+
+        Ok(())
+    }
 }
 
 impl<T: Copy> AlignedBox<[T]> {
@@ -288,6 +411,40 @@ impl<T: Copy> AlignedBox<[T]> {
         };
 
         Ok(b)
+    }
+
+    /// Resize allocated memory to fit `nelem` values of type `T`. The original alignment requested
+    /// when creating the `AlignedBox` will still be obeyed. If `nelem` is larger than the current
+    /// amount of stored elements, the newly allocated elements will be initialized with the
+    /// value given as argument to this function. If `nelem` is smaller than the current amount of
+    /// stored elements, any excess elements will be dropped. In case realloc fails, those dropped
+    /// elements will be reinitialized with the value given to this function.
+    ///
+    /// # Example
+    /// Create an AlignedBox::<[f32]> with 1024 elements. Extend to 2048 elements. Initialize all new
+    /// elements by 3.14.
+    /// ```
+    /// use aligned_box::AlignedBox;
+    ///
+    /// let mut b = AlignedBox::<[f32]>::slice_from_default(128, 1024).unwrap();
+    /// b.realloc_with_value(2048, 3.14);
+    /// ```
+    pub fn realloc_with_value(
+        &mut self,
+        nelems: usize,
+        value: T,
+    ) -> std::result::Result<(), std::boxed::Box<dyn std::error::Error>> {
+        // SAFETY:
+        // * The initializer we pass to new_slice does not read or drop the value behind ptr.
+        unsafe {
+            self.realloc(nelems, |ptr: *mut T| {
+                // T is Copy and therefore also !Drop. We can simply copy from value to ptr
+                // without worrying about the old value being dropped.
+                *ptr = value;
+            })?
+        };
+
+        Ok(())
     }
 }
 
@@ -378,9 +535,21 @@ mod tests {
             }
         }
 
+        impl Default for Tracking {
+            fn default() -> Tracking {
+                Tracking::new()
+            }
+        }
+
         let b = AlignedBox::new(128, Tracking::new()).unwrap();
         drop(b);
 
+        let mut b = AlignedBox::<[Tracking]>::slice_from_default(128, 3).unwrap();
+
+        b.realloc_with_default(1).unwrap();
+        assert_eq!(COUNTER.load(std::sync::atomic::Ordering::Relaxed), 1);
+
+        drop(b);
         assert_eq!(COUNTER.load(std::sync::atomic::Ordering::Relaxed), 0);
     }
 
@@ -503,6 +672,68 @@ mod tests {
         assert_eq!(b[1], 11);
         assert_eq!(another_b[0], 47);
         assert_eq!(another_b[1], 12);
+    }
+
+    #[test]
+    fn realloc_with_default() {
+        let alignment = 1024 * 1024; // 1MB
+
+        let mut b = AlignedBox::<[usize]>::slice_from_default(alignment, 10).unwrap();
+        for i in 0..10 {
+            b[i] = i;
+        }
+
+        b.realloc_with_default(20).unwrap();
+
+        for i in 0..10 {
+            assert_eq!(b[i], i);
+        }
+        let def: usize = Default::default();
+        for i in 10..20 {
+            assert_eq!(b[i], def);
+        }
+
+        b.realloc_with_default(5).unwrap();
+        for i in 0..5 {
+            assert_eq!(b[i], i);
+        }
+    }
+
+    #[test]
+    fn realloc_with_value() {
+        let alignment = 1024 * 1024; // 1MB
+
+        let mut b = AlignedBox::<[usize]>::slice_from_value(alignment, 10, 3).unwrap();
+
+        b.realloc_with_value(20, 7).unwrap();
+
+        for i in 0..10 {
+            assert_eq!(b[i], 3);
+        }
+        for i in 10..20 {
+            assert_eq!(b[i], 7);
+        }
+
+        b.realloc_with_default(5).unwrap();
+        for i in 0..5 {
+            assert_eq!(b[i], 3);
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn shrink() {
+        let alignment = 1024 * 1024; // 1MB
+
+        let mut b = AlignedBox::<[usize]>::slice_from_default(alignment, 10).unwrap();
+        for i in 0..10 {
+            b[i] = i;
+        }
+
+        b.realloc_with_default(5).unwrap();
+        for i in 0..6 {
+            assert_eq!(b[i], i);
+        }
     }
 
     // Manual test to check for any leaks in new(), clone() and drop(). Run via
