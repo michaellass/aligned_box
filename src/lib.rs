@@ -157,23 +157,8 @@ impl<T> AlignedBox<T> {
 
         Ok(b)
     }
-}
 
-impl<T: Default> AlignedBox<[T]> {
-    /// Allocate memory for `nelems` values of type `T` on the heap, making sure that it is aligned
-    /// to a multiple of `alignment`. All values are initialized by the default value of type `T`.
-    /// It is also checked if `alignment` is a valid alignment for type `T` or increased to a
-    /// valid alignment otherwise.
-    ///
-    /// # Example
-    /// Allocate memory for 1024 values of type `f32` on the heap, aligned to 128 bytes. Values
-    /// are initialized by their default value:
-    /// ```
-    /// use aligned_box::AlignedBox;
-    ///
-    /// let b = AlignedBox::<[f32]>::slice_from_default(128, 1024);
-    /// ```
-    pub fn slice_from_default(
+    fn new_uninitialized_sliced(
         mut alignment: usize,
         nelems: usize,
     ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
@@ -207,7 +192,31 @@ impl<T: Default> AlignedBox<[T]> {
 
         // SAFETY: We only create a single Box from the given slice. The slice itself is consumed
         // so that the referenced memory can be modified from now on.
-        let mut b = unsafe { AlignedBox::<[T]>::from_raw_parts(slice, layout) };
+        let b = unsafe { AlignedBox::<[T]>::from_raw_parts(slice, layout) };
+
+        Ok(b)
+    }
+}
+
+impl<T: Default> AlignedBox<[T]> {
+    /// Allocate memory for `nelems` values of type `T` on the heap, making sure that it is aligned
+    /// to a multiple of `alignment`. All values are initialized by the default value of type `T`.
+    /// It is also checked if `alignment` is a valid alignment for type `T` or increased to a
+    /// valid alignment otherwise.
+    ///
+    /// # Example
+    /// Allocate memory for 1024 values of type `f32` on the heap, aligned to 128 bytes. Values
+    /// are initialized by their default value:
+    /// ```
+    /// use aligned_box::AlignedBox;
+    ///
+    /// let b = AlignedBox::<[f32]>::slice_from_default(128, 1024);
+    /// ```
+    pub fn slice_from_default(
+        alignment: usize,
+        nelems: usize,
+    ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
+        let mut b = AlignedBox::<T>::new_uninitialized_sliced(alignment, nelems)?;
 
         for i in (*b).iter_mut() {
             let d = T::default(); // create new default value
@@ -236,41 +245,11 @@ impl<T: Copy> AlignedBox<[T]> {
     ///
     /// let b = AlignedBox::<[f32]>::slice_from_value(128, 1024, std::f32::consts::PI);
     pub fn slice_from_value(
-        mut alignment: usize,
+        alignment: usize,
         nelems: usize,
         value: T,
     ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
-        if alignment < std::mem::align_of::<T>() {
-            alignment = std::mem::align_of::<T>();
-        }
-
-        // Make sure the requested amount of Ts will fit into a slice.
-        let maxelems = (isize::MAX as usize) / std::mem::size_of::<T>();
-        if nelems > maxelems {
-            return Err(AlignedBoxError::TooManyElements.into());
-        }
-
-        let memsize: usize = std::mem::size_of::<T>() * nelems;
-        if memsize == 0 {
-            return Err(AlignedBoxError::ZeroAlloc.into());
-        }
-
-        let layout = std::alloc::Layout::from_size_align(memsize, alignment)?;
-
-        // SAFETY: Requirements on layout are enforced by using from_size_align().
-        let ptr = unsafe { std::alloc::alloc(layout) as *mut T };
-        if ptr.is_null() {
-            return Err(AlignedBoxError::OutOfMemory.into());
-        }
-
-        // SAFETY: Requirements on ptr and nelems have been verified: ptr is non-null, nelems does
-        // not exceed the maximum size. The referenced memory is not accessed as long as slice
-        // exists.
-        let slice = unsafe { std::slice::from_raw_parts_mut(ptr, nelems) };
-
-        // SAFETY: We only create a single Box from the given slice. The slice itself is consumed
-        // so that the referenced memory can be modified from now on.
-        let mut b = unsafe { AlignedBox::<[T]>::from_raw_parts(slice, layout) };
+        let mut b = AlignedBox::<T>::new_uninitialized_sliced(alignment, nelems)?;
 
         for i in (*b).iter_mut() {
             // T is Copy and therefore also !Drop. We can simply copy from value to *i without
