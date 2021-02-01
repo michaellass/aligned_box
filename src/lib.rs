@@ -114,62 +114,13 @@ impl<T: ?Sized> AlignedBox<T> {
 }
 
 impl<T> AlignedBox<T> {
-    /// Store `value` of type `T` on the heap, making sure that it is aligned to a multiple of
-    /// `alignment`. It is also checked if `alignment` is a valid alignment for type `T` or
-    /// increased to a valid alignment otherwise.
-    ///
-    /// # Example
-    /// Place value 17 of type `i32` on the heap, aligned to 64 bytes:
-    /// ```
-    /// use aligned_box::AlignedBox;
-    ///
-    /// let b = AlignedBox::<i32>::new(64, 17);
-    /// ```
-    pub fn new(
-        mut alignment: usize,
-        value: T,
-    ) -> std::result::Result<AlignedBox<T>, std::boxed::Box<dyn std::error::Error>> {
-        if alignment < std::mem::align_of::<T>() {
-            alignment = std::mem::align_of::<T>();
-        }
-
-        let memsize: usize = std::mem::size_of::<T>();
-        if memsize == 0 {
-            return Err(AlignedBoxError::ZeroAlloc.into());
-        }
-
-        let layout = std::alloc::Layout::from_size_align(memsize, alignment)?;
-
-        // SAFETY: Requirements on layout are enforced by using from_size_align().
-        let ptr = unsafe { std::alloc::alloc(layout) as *mut T };
-        if ptr.is_null() {
-            return Err(AlignedBoxError::OutOfMemory.into());
-        }
-
-        // SAFETY: The pointer is non-null, refers to properly sized and aligned memory and it is
-        // consumed such that it cannot be used from anywhere outside the Box.
-        let mut b = unsafe { AlignedBox::<T>::from_raw_parts(ptr, layout) };
-
-        // *b is not a valid instance of T but uninitialized memory. We have to write to it without
-        // dropping the old (invalid) value. Also the original value must not be dropped.
-        // SAFETY: Both value and *b point to valid and properly aligned memory.
-        unsafe { std::ptr::write(&mut *b, value) };
-
-        Ok(b)
-    }
-
-    fn new_uninitialized_sliced(
+    fn allocate(
         mut alignment: usize,
         nelems: usize,
-    ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
+    ) -> std::result::Result<(*mut T, std::alloc::Layout), std::boxed::Box<dyn std::error::Error>>
+    {
         if alignment < std::mem::align_of::<T>() {
             alignment = std::mem::align_of::<T>();
-        }
-
-        // Make sure the requested amount of Ts will fit into a slice.
-        let maxelems = (isize::MAX as usize) / std::mem::size_of::<T>();
-        if nelems > maxelems {
-            return Err(AlignedBoxError::TooManyElements.into());
         }
 
         let memsize: usize = std::mem::size_of::<T>() * nelems;
@@ -185,14 +136,59 @@ impl<T> AlignedBox<T> {
             return Err(AlignedBoxError::OutOfMemory.into());
         }
 
-        // SAFETY: Requirements on ptr and nelems have been verified: ptr is non-null, nelems does
-        // not exceed the maximum size. The referenced memory is not accessed as long as slice
-        // exists.
+        Ok((ptr, layout))
+    }
+
+    fn new_uninitialized_sliced(
+        alignment: usize,
+        nelems: usize,
+    ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
+        // Make sure the requested amount of Ts will fit into a slice.
+        let maxelems = (isize::MAX as usize) / std::mem::size_of::<T>();
+        if nelems > maxelems {
+            return Err(AlignedBoxError::TooManyElements.into());
+        }
+
+        let (ptr, layout) = AlignedBox::<T>::allocate(alignment, nelems)?;
+
+        // SAFETY: Requirements on ptr and nelems have been verified here and by
+        // AlignedBox::alocate():
+        // ptr is non-null, nelems does not exceed the maximum size.
+        // The referenced memory is not accessed as long as slice exists.
         let slice = unsafe { std::slice::from_raw_parts_mut(ptr, nelems) };
 
         // SAFETY: We only create a single Box from the given slice. The slice itself is consumed
         // so that the referenced memory can be modified from now on.
         let b = unsafe { AlignedBox::<[T]>::from_raw_parts(slice, layout) };
+
+        Ok(b)
+    }
+
+    /// Store `value` of type `T` on the heap, making sure that it is aligned to a multiple of
+    /// `alignment`. It is also checked if `alignment` is a valid alignment for type `T` or
+    /// increased to a valid alignment otherwise.
+    ///
+    /// # Example
+    /// Place value 17 of type `i32` on the heap, aligned to 64 bytes:
+    /// ```
+    /// use aligned_box::AlignedBox;
+    ///
+    /// let b = AlignedBox::<i32>::new(64, 17);
+    /// ```
+    pub fn new(
+        alignment: usize,
+        value: T,
+    ) -> std::result::Result<AlignedBox<T>, std::boxed::Box<dyn std::error::Error>> {
+        let (ptr, layout) = AlignedBox::<T>::allocate(alignment, 1)?;
+
+        // SAFETY: The pointer is non-null, refers to properly sized and aligned memory and it is
+        // consumed such that it cannot be used from anywhere outside the Box.
+        let mut b = unsafe { AlignedBox::<T>::from_raw_parts(ptr, layout) };
+
+        // *b is not a valid instance of T but uninitialized memory. We have to write to it without
+        // dropping the old (invalid) value. Also the original value must not be dropped.
+        // SAFETY: Both value and *b point to valid and properly aligned memory.
+        unsafe { std::ptr::write(&mut *b, value) };
 
         Ok(b)
     }
