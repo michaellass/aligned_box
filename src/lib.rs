@@ -139,7 +139,12 @@ impl<T> AlignedBox<T> {
         Ok((ptr, layout))
     }
 
-    fn new_uninitialized_sliced(
+    // # SAFETY
+    // This function returns a slice of unitialized values. It is the responsibility of
+    // the caller to initialize all values without looking at the old uninitialized values,
+    // e.g., using std::ptr::write.
+    #[allow(unused_unsafe)] // https://github.com/rust-lang/rfcs/pull/2585
+    unsafe fn new_uninitialized_sliced(
         alignment: usize,
         nelems: usize,
     ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
@@ -155,6 +160,8 @@ impl<T> AlignedBox<T> {
         // AlignedBox::alocate():
         // ptr is non-null, nelems does not exceed the maximum size.
         // The referenced memory is not accessed as long as slice exists.
+        // But: The slice _will_ contain unitialized values. We rely on the caller of
+        // this function to properly initilize them.
         let slice = unsafe { std::slice::from_raw_parts_mut(ptr, nelems) };
 
         // SAFETY: We only create a single Box from the given slice. The slice itself is consumed
@@ -212,7 +219,9 @@ impl<T: Default> AlignedBox<[T]> {
         alignment: usize,
         nelems: usize,
     ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
-        let mut b = AlignedBox::<T>::new_uninitialized_sliced(alignment, nelems)?;
+        // SAFETY: All elements of the slice are immediately initialized without looking at
+        // the old (unitialized) value.
+        let mut b = unsafe { AlignedBox::<T>::new_uninitialized_sliced(alignment, nelems)? };
 
         for i in (*b).iter_mut() {
             let d = T::default(); // create new default value
@@ -245,7 +254,9 @@ impl<T: Copy> AlignedBox<[T]> {
         nelems: usize,
         value: T,
     ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
-        let mut b = AlignedBox::<T>::new_uninitialized_sliced(alignment, nelems)?;
+        // SAFETY: All elements of the slice are immediately initialized without looking at
+        // the old (unitialized) value.
+        let mut b = unsafe { AlignedBox::<T>::new_uninitialized_sliced(alignment, nelems)? };
 
         for i in (*b).iter_mut() {
             // T is Copy and therefore also !Drop. We can simply copy from value to *i without
