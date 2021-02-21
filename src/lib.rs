@@ -56,7 +56,9 @@ impl<T: ?Sized> Drop for AlignedBox<T> {
         // * dealloc is called with layout that has been used for allocation earlier
         unsafe {
             let container = std::mem::ManuallyDrop::take(&mut self.container);
-            std::alloc::dealloc(std::boxed::Box::into_raw(container) as *mut u8, self.layout);
+            let ptr = std::boxed::Box::into_raw(container);
+            std::ptr::drop_in_place(ptr);
+            std::alloc::dealloc(ptr as *mut u8, self.layout);
         }
     }
 }
@@ -326,6 +328,34 @@ mod tests {
             addrs.insert(b.as_ptr() as usize);
         }
         assert_ne!(addrs.len(), ATTEMPTS);
+    }
+
+    #[test]
+    fn drop_contained() {
+        let _m = SEQ_TEST_MUTEX.read().unwrap();
+
+        static COUNTER: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+        struct Tracking {
+            #[allow(dead_code)]
+            something: i32,
+        }
+        impl Tracking {
+            pub fn new() -> Tracking {
+                let v = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Tracking{something: 7}
+            }
+        }
+        impl Drop for Tracking {
+            fn drop(&mut self) {
+                let v = COUNTER.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+
+        let b = AlignedBox::new(128, Tracking::new()).unwrap();
+        drop(b);
+
+        assert_eq!(COUNTER.load(std::sync::atomic::Ordering::Relaxed), 0);
     }
 
     #[test]
