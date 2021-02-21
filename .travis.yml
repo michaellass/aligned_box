@@ -5,5 +5,28 @@ rust:
   - beta
   - nightly
 matrix:
-  allow_failures:
+  include:
     - rust: nightly
+      env: RUSTFLAGS="-Zsanitizer=address" RUSTDOCFLAGS="-Zsanitizer=address"
+      script:
+        - rustup component add rust-src
+        - cargo build --verbose -Zbuild-std --target x86_64-unknown-linux-gnu
+        - cargo test --verbose -Zbuild-std --target x86_64-unknown-linux-gnu
+    - rust: nightly
+      env: RUSTFLAGS="-Zsanitizer=leak" RUSTDOCFLAGS="-Zsanitizer=leak"
+      script:
+        - rustup component add rust-src
+        - cargo build --verbose -Zbuild-std --target x86_64-unknown-linux-gnu
+        - cargo test --verbose -Zbuild-std --target x86_64-unknown-linux-gnu
+    - rust: nightly
+      env: RUSTFLAGS="-Zsanitizer=memory" RUSTDOCFLAGS="-Zsanitizer=memory"
+      script:
+        - rustup component add rust-src
+        - cargo build --verbose -Zbuild-std --target x86_64-unknown-linux-gnu
+        - cargo test --verbose -Zbuild-std --target x86_64-unknown-linux-gnu
+    - rust: nightly
+      env: RUSTFLAGS="-Zsanitizer=thread" RUSTDOCFLAGS="-Zsanitizer=thread"
+      script:
+        - rustup component add rust-src
+        - cargo build --verbose -Zbuild-std --target x86_64-unknown-linux-gnu
+        - cargo test --verbose -Zbuild-std --target x86_64-unknown-linux-gnu

@@ -309,7 +309,12 @@ mod tests {
         }
     }
 
+    // This is a probabilistic test and it relies on re-use of addresses by the standard library or
+    // the operating system. It does not work with address sanitizer enabled, so it is disabled by
+    // default. It can be run via:
+    //  `cargo t free -- --ignored`
     #[test]
+    #[ignore]
     fn free() {
         // This test should not run concurrently with other tests since multiple threads influence
         // each other and addresses are not reproducible.
