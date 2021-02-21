@@ -342,13 +342,13 @@ mod tests {
         }
         impl Tracking {
             pub fn new() -> Tracking {
-                let v = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 Tracking{something: 7}
             }
         }
         impl Drop for Tracking {
             fn drop(&mut self) {
-                let v = COUNTER.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                COUNTER.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
             }
         }
 
