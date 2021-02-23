@@ -52,11 +52,13 @@ impl<T: ?Sized> std::ops::DerefMut for AlignedBox<T> {
 impl<T: ?Sized> Drop for AlignedBox<T> {
     fn drop(&mut self) {
         // SAFETY:
-        // * self.container is not used after taking the Box out of it
+        // * self being dropped right now, self.container is not used after taking the Box out of it
+        let container = unsafe { std::mem::ManuallyDrop::take(&mut self.container) };
+        let ptr = std::boxed::Box::into_raw(container);
+        // SAFETY:
+        // * value behind ptr is valid for R/W, properly aligned and valid to drop
         // * dealloc is called with layout that has been used for allocation earlier
         unsafe {
-            let container = std::mem::ManuallyDrop::take(&mut self.container);
-            let ptr = std::boxed::Box::into_raw(container);
             std::ptr::drop_in_place(ptr);
             std::alloc::dealloc(ptr as *mut u8, self.layout);
         }
@@ -65,20 +67,24 @@ impl<T: ?Sized> Drop for AlignedBox<T> {
 
 impl<T: Clone + ?Sized> Clone for AlignedBox<T> {
     fn clone(&self) -> Self {
+        // SAFETY:
         // layout is certainly valid as it has already been used to create self
         let ptr = unsafe { std::alloc::alloc(self.layout) as *mut T };
         if ptr.is_null() {
-            panic!("Error when allocating memory for a clone of AlignedBox");
+            panic!("Failed to allocate memory for a clone of AlignedBox");
         }
 
-        // SAFETY: The pointer is non-null, refers to properly sized and aligned memory and it is
-        // consumed such that it cannot be used from anywhere outside the Box.
+        // SAFETY:
+        // * The pointer is non-null, refers to properly sized and aligned memory and it is
+        //   consumed such that it cannot be used from anywhere outside the Box. There is no
+        //   aliasing with other pointers.
         let mut b = unsafe { AlignedBox::<T>::from_raw_parts(ptr, self.layout) };
 
         // *b is not a valid instance of T but uninitialized memory. We have to write to it without
         // dropping the old (invalid) value. Also the original value must not be dropped.
-        // SAFETY: *b points to valid and properly aligned memory and clone() also provides us with
-        // a valid value.
+        // SAFETY:
+        // * *b points to valid and properly aligned memory and clone() also provides us with
+        //   a valid value.
         unsafe { std::ptr::write(&mut *b, (**self.container).clone()) };
 
         b
@@ -91,7 +97,8 @@ impl<T: ?Sized> AlignedBox<T> {
     /// behind the pointer. This can for example be done by reconstructing the `AlignedBox` using
     /// `AlignedBox::from_raw_parts`.
     pub fn into_raw_parts(mut from: AlignedBox<T>) -> (*mut T, std::alloc::Layout) {
-        // SAFETY: from.container is not used anymore afterwards
+        // SAFETY:
+        // * from being consumed by this function, from.container is not used anymore afterwards
         let container = unsafe { std::mem::ManuallyDrop::take(&mut from.container) };
         let ptr = std::boxed::Box::into_raw(container);
         let layout = from.layout;
@@ -132,7 +139,8 @@ impl<T> AlignedBox<T> {
 
         let layout = std::alloc::Layout::from_size_align(memsize, alignment)?;
 
-        // SAFETY: Requirements on layout are enforced by using from_size_align().
+        // SAFETY:
+        // * Requirements on layout are enforced by using from_size_align().
         let ptr = unsafe { std::alloc::alloc(layout) as *mut T };
         if ptr.is_null() {
             return Err(AlignedBoxError::OutOfMemory.into());
@@ -160,11 +168,14 @@ impl<T> AlignedBox<T> {
 
         // ptr is not a valid instance of T but uninitialized memory. We have to write to it without
         // dropping the old (invalid) value. Also the original value must not be dropped.
-        // SAFETY: Both value and ptr point to valid and properly aligned memory.
+        // SAFETY:
+        // * *b is valid for writes and properly aligned.
         unsafe { std::ptr::write(ptr, value) };
 
-        // SAFETY: The pointer is non-null, refers to properly sized and aligned memory and it is
-        // consumed such that it cannot be used from anywhere outside the Box.
+        // SAFETY:
+        // * The pointer is non-null, refers to properly sized and aligned memory and it is
+        //   consumed such that it cannot be used from anywhere outside the Box. It does not
+        //   alias with any other pointer.
         let b = unsafe { AlignedBox::<T>::from_raw_parts(ptr, layout) };
 
         Ok(b)
@@ -172,10 +183,12 @@ impl<T> AlignedBox<T> {
 }
 
 impl<T> AlignedBox<[T]> {
+    // Create a AlignedBox<[T]> where each value is initialized by the given initializer
+    // function.
+    //
     // # SAFETY
-    // This function returns a slice of unitialized values. It is the responsibility of
-    // the caller to initialize all values without looking at the old uninitialized values,
-    // e.g., using std::ptr::write.
+    // The initializer function has to initialize the value behind the pointer without
+    // reading or dropping the old uninitialized value, e.g., using std::ptr::write.
     #[allow(unused_unsafe)] // https://github.com/rust-lang/rfcs/pull/2585
     unsafe fn new_slice(
         alignment: usize,
@@ -191,21 +204,21 @@ impl<T> AlignedBox<[T]> {
         let (ptr, layout) = AlignedBox::<T>::allocate(alignment, nelems)?;
 
         // Initialize values. The caller must ensure that initializer does not expect valid
-        // values behind *ptr.
+        // values behind ptr.
         for i in 0..nelems {
             initializer(ptr.offset(i as isize));
         }
 
-        // SAFETY: Requirements on ptr and nelems have been verified here and by
-        // AlignedBox::alocate():
-        // ptr is non-null, nelems does not exceed the maximum size.
-        // The referenced memory is not accessed as long as slice exists.
-        // But: The slice _will_ contain unitialized values. We rely on the caller of
-        // this function to properly initilize them.
+        // SAFETY:
+        // * Requirements on ptr and nelems have been verified here and by AlignedBox::allocate():
+        //   ptr is non-null, nelems does not exceed the maximum size.
+        // * The referenced memory is not accessed through any other pointer.
+        // * ptr points to nelems properly initialized values.
         let slice = unsafe { std::slice::from_raw_parts_mut(ptr, nelems) };
 
-        // SAFETY: We only create a single Box from the given slice. The slice itself is consumed
-        // so that the referenced memory can be modified from now on.
+        // SAFETY:
+        // * We only create a single Box from the given slice. The slice itself is consumed
+        //   so that the referenced memory can be modified from now on.
         let b = unsafe { AlignedBox::<[T]>::from_raw_parts(slice, layout) };
 
         Ok(b)
@@ -230,17 +243,15 @@ impl<T: Default> AlignedBox<[T]> {
         alignment: usize,
         nelems: usize,
     ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
+        // SAFETY:
+        // * The initializer we pass to new_slice does not read or drop the value behind ptr.
         let b = unsafe {
             AlignedBox::<[T]>::new_slice(alignment, nelems, &|ptr: *mut T| {
                 let d = T::default(); // create new default value
 
-                // *ptr is not a valid instance of T but uninitialized memory. We have to write
-                // to it without dropping the old (invalid) value. Also d must not be dropped.
+                // Write to ptr without dropping the old value. Also d must not be dropped.
                 // SAFETY: ptr points to valid and properly aligned memory.
-                #[allow(unused_unsafe)]
-                unsafe {
-                    std::ptr::write(&mut *ptr, d)
-                };
+                std::ptr::write(ptr, d)
             })?
         };
 
@@ -266,12 +277,12 @@ impl<T: Copy> AlignedBox<[T]> {
         nelems: usize,
         value: T,
     ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
-        // SAFETY: All elements of the slice are immediately initialized without looking at
-        // the old (unitialized) value.
+        // SAFETY:
+        // * The initializer we pass to new_slice does not read or drop the value behind ptr.
         let b = unsafe {
             AlignedBox::<[T]>::new_slice(alignment, nelems, &|ptr: *mut T| {
-                // T is Copy and therefore also !Drop. We can simply copy from value to *ptr without
-                // worrying about dropping.
+                // T is Copy and therefore also !Drop. We can simply copy from value to ptr
+                // without worrying about the old value being dropped.
                 *ptr = value;
             })?
         };
