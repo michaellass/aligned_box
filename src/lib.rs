@@ -141,38 +141,6 @@ impl<T> AlignedBox<T> {
         Ok((ptr, layout))
     }
 
-    // # SAFETY
-    // This function returns a slice of unitialized values. It is the responsibility of
-    // the caller to initialize all values without looking at the old uninitialized values,
-    // e.g., using std::ptr::write.
-    #[allow(unused_unsafe)] // https://github.com/rust-lang/rfcs/pull/2585
-    unsafe fn new_uninitialized_sliced(
-        alignment: usize,
-        nelems: usize,
-    ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
-        // Make sure the requested amount of Ts will fit into a slice.
-        let maxelems = (isize::MAX as usize) / std::mem::size_of::<T>();
-        if nelems > maxelems {
-            return Err(AlignedBoxError::TooManyElements.into());
-        }
-
-        let (ptr, layout) = AlignedBox::<T>::allocate(alignment, nelems)?;
-
-        // SAFETY: Requirements on ptr and nelems have been verified here and by
-        // AlignedBox::alocate():
-        // ptr is non-null, nelems does not exceed the maximum size.
-        // The referenced memory is not accessed as long as slice exists.
-        // But: The slice _will_ contain unitialized values. We rely on the caller of
-        // this function to properly initilize them.
-        let slice = unsafe { std::slice::from_raw_parts_mut(ptr, nelems) };
-
-        // SAFETY: We only create a single Box from the given slice. The slice itself is consumed
-        // so that the referenced memory can be modified from now on.
-        let b = unsafe { AlignedBox::<[T]>::from_raw_parts(slice, layout) };
-
-        Ok(b)
-    }
-
     /// Store `value` of type `T` on the heap, making sure that it is aligned to a multiple of
     /// `alignment`. It is also checked if `alignment` is a valid alignment for type `T` or
     /// increased to a valid alignment otherwise.
@@ -203,6 +171,47 @@ impl<T> AlignedBox<T> {
     }
 }
 
+impl<T> AlignedBox<[T]> {
+    // # SAFETY
+    // This function returns a slice of unitialized values. It is the responsibility of
+    // the caller to initialize all values without looking at the old uninitialized values,
+    // e.g., using std::ptr::write.
+    #[allow(unused_unsafe)] // https://github.com/rust-lang/rfcs/pull/2585
+    unsafe fn new_slice(
+        alignment: usize,
+        nelems: usize,
+        initializer: &dyn Fn(*mut T) -> (),
+    ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
+        // Make sure the requested amount of Ts will fit into a slice.
+        let maxelems = (isize::MAX as usize) / std::mem::size_of::<T>();
+        if nelems > maxelems {
+            return Err(AlignedBoxError::TooManyElements.into());
+        }
+
+        let (ptr, layout) = AlignedBox::<T>::allocate(alignment, nelems)?;
+
+        // Initialize values. The caller must ensure that initializer does not expect valid
+        // values behind *ptr.
+        for i in 0..nelems {
+            initializer(ptr.offset(i as isize));
+        }
+
+        // SAFETY: Requirements on ptr and nelems have been verified here and by
+        // AlignedBox::alocate():
+        // ptr is non-null, nelems does not exceed the maximum size.
+        // The referenced memory is not accessed as long as slice exists.
+        // But: The slice _will_ contain unitialized values. We rely on the caller of
+        // this function to properly initilize them.
+        let slice = unsafe { std::slice::from_raw_parts_mut(ptr, nelems) };
+
+        // SAFETY: We only create a single Box from the given slice. The slice itself is consumed
+        // so that the referenced memory can be modified from now on.
+        let b = unsafe { AlignedBox::<[T]>::from_raw_parts(slice, layout) };
+
+        Ok(b)
+    }
+}
+
 impl<T: Default> AlignedBox<[T]> {
     /// Allocate memory for `nelems` values of type `T` on the heap, making sure that it is aligned
     /// to a multiple of `alignment`. All values are initialized by the default value of type `T`.
@@ -221,18 +230,19 @@ impl<T: Default> AlignedBox<[T]> {
         alignment: usize,
         nelems: usize,
     ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
-        // SAFETY: All elements of the slice are immediately initialized without looking at
-        // the old (unitialized) value.
-        let mut b = unsafe { AlignedBox::<T>::new_uninitialized_sliced(alignment, nelems)? };
+        let b = unsafe {
+            AlignedBox::<[T]>::new_slice(alignment, nelems, &|ptr: *mut T| {
+                let d = T::default(); // create new default value
 
-        for i in (*b).iter_mut() {
-            let d = T::default(); // create new default value
-
-            // *i is not a valid instance of T but uninitialized memory. We have to write to it
-            // without dropping the old (invalid) value. Also d must not be dropped.
-            // SAFETY: Both value and b point to valid and properly aligned memory.
-            unsafe { std::ptr::write(&mut *i, d) };
-        }
+                // *ptr is not a valid instance of T but uninitialized memory. We have to write
+                // to it without dropping the old (invalid) value. Also d must not be dropped.
+                // SAFETY: ptr points to valid and properly aligned memory.
+                #[allow(unused_unsafe)]
+                unsafe {
+                    std::ptr::write(&mut *ptr, d)
+                };
+            })?
+        };
 
         Ok(b)
     }
@@ -258,13 +268,13 @@ impl<T: Copy> AlignedBox<[T]> {
     ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
         // SAFETY: All elements of the slice are immediately initialized without looking at
         // the old (unitialized) value.
-        let mut b = unsafe { AlignedBox::<T>::new_uninitialized_sliced(alignment, nelems)? };
-
-        for i in (*b).iter_mut() {
-            // T is Copy and therefore also !Drop. We can simply copy from value to *i without
-            // worrying about dropping.
-            *i = value;
-        }
+        let b = unsafe {
+            AlignedBox::<[T]>::new_slice(alignment, nelems, &|ptr: *mut T| {
+                // T is Copy and therefore also !Drop. We can simply copy from value to *ptr without
+                // worrying about dropping.
+                *ptr = value;
+            })?
+        };
 
         Ok(b)
     }
@@ -348,7 +358,7 @@ mod tests {
         impl Tracking {
             pub fn new() -> Tracking {
                 COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                Tracking{something: 7}
+                Tracking { something: 7 }
             }
         }
         impl Drop for Tracking {
