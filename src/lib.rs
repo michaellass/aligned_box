@@ -193,7 +193,7 @@ impl<T> AlignedBox<[T]> {
     unsafe fn new_slice(
         alignment: usize,
         nelems: usize,
-        initializer: &dyn Fn(*mut T) -> (),
+        initializer: impl Fn(*mut T) -> (),
     ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
         // Make sure the requested amount of Ts will fit into a slice.
         let maxelems = (isize::MAX as usize) / std::mem::size_of::<T>();
@@ -246,7 +246,7 @@ impl<T: Default> AlignedBox<[T]> {
         // SAFETY:
         // * The initializer we pass to new_slice does not read or drop the value behind ptr.
         let b = unsafe {
-            AlignedBox::<[T]>::new_slice(alignment, nelems, &|ptr: *mut T| {
+            AlignedBox::<[T]>::new_slice(alignment, nelems, |ptr: *mut T| {
                 let d = T::default(); // create new default value
 
                 // Write to ptr without dropping the old value. Also d must not be dropped.
@@ -280,7 +280,7 @@ impl<T: Copy> AlignedBox<[T]> {
         // SAFETY:
         // * The initializer we pass to new_slice does not read or drop the value behind ptr.
         let b = unsafe {
-            AlignedBox::<[T]>::new_slice(alignment, nelems, &|ptr: *mut T| {
+            AlignedBox::<[T]>::new_slice(alignment, nelems, |ptr: *mut T| {
                 // T is Copy and therefore also !Drop. We can simply copy from value to ptr
                 // without worrying about the old value being dropped.
                 *ptr = value;
