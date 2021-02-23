@@ -158,14 +158,14 @@ impl<T> AlignedBox<T> {
     ) -> std::result::Result<AlignedBox<T>, std::boxed::Box<dyn std::error::Error>> {
         let (ptr, layout) = AlignedBox::<T>::allocate(alignment, 1)?;
 
+        // ptr is not a valid instance of T but uninitialized memory. We have to write to it without
+        // dropping the old (invalid) value. Also the original value must not be dropped.
+        // SAFETY: Both value and ptr point to valid and properly aligned memory.
+        unsafe { std::ptr::write(ptr, value) };
+
         // SAFETY: The pointer is non-null, refers to properly sized and aligned memory and it is
         // consumed such that it cannot be used from anywhere outside the Box.
-        let mut b = unsafe { AlignedBox::<T>::from_raw_parts(ptr, layout) };
-
-        // *b is not a valid instance of T but uninitialized memory. We have to write to it without
-        // dropping the old (invalid) value. Also the original value must not be dropped.
-        // SAFETY: Both value and *b point to valid and properly aligned memory.
-        unsafe { std::ptr::write(&mut *b, value) };
+        let b = unsafe { AlignedBox::<T>::from_raw_parts(ptr, layout) };
 
         Ok(b)
     }
