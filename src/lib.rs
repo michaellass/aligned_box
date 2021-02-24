@@ -476,10 +476,7 @@ mod tests {
     fn size() {
         let _m = SEQ_TEST_MUTEX.read().unwrap();
 
-        let sizes = [
-            1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536,
-            131072, 262144, 524288, 1048576,
-        ];
+        let sizes = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
 
         for s in sizes.iter() {
             let b = AlignedBox::<[u8]>::slice_from_value(1, *s, 0).unwrap();
