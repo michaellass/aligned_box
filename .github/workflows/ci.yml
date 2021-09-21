@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+    branches:
+    - master
+  pull_request:
+    branches:
+    - master
+  workflow_dispatch:
+
+jobs:
+  stable:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - name: Build
+      run: cargo build --verbose --target x86_64-unknown-linux-gnu
+    - name: Test
+      run: cargo test --verbose --target x86_64-unknown-linux-gnu
+
+  beta:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: beta
+        override: true
+    - name: Build
+      run: cargo build --verbose --target x86_64-unknown-linux-gnu
+    - name: Test
+      run: cargo test --verbose --target x86_64-unknown-linux-gnu
+
+  nightly:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+    - name: Build
+      run: cargo build --verbose --target x86_64-unknown-linux-gnu
+    - name: Test
+      run: cargo test --verbose --target x86_64-unknown-linux-gnu
+
+  addressSanitizer:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -Zsanitizer=address
+      RUSTDOCFLAGS: -Zsanitizer=address
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: rust-src
+    - name: Build
+      run: cargo build --verbose -Zbuild-std --target x86_64-unknown-linux-gnu
+    - name: Test
+      run: cargo test --verbose -Zbuild-std --target x86_64-unknown-linux-gnu
+
+  leakSanitizer:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -Zsanitizer=leak
+      RUSTDOCFLAGS: -Zsanitizer=leak
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: rust-src
+    - name: Build
+      run: cargo build --verbose -Zbuild-std --target x86_64-unknown-linux-gnu
+    - name: Test
+      run: cargo test --verbose -Zbuild-std --target x86_64-unknown-linux-gnu
+
+  memorySanitizer:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -Zsanitizer=memory
+      RUSTDOCFLAGS: -Zsanitizer=memory
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: rust-src
+    - name: Build
+      run: cargo build --verbose -Zbuild-std --target x86_64-unknown-linux-gnu
+    - name: Test
+      run: cargo test --verbose -Zbuild-std --target x86_64-unknown-linux-gnu
+
+  threadSanitizer:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -Zsanitizer=thread
+      RUSTDOCFLAGS: -Zsanitizer=thread
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: rust-src
+    - name: Build
+      run: cargo build --verbose -Zbuild-std --target x86_64-unknown-linux-gnu
+    - name: Test
+      run: cargo test --verbose -Zbuild-std --target x86_64-unknown-linux-gnu
+
+  miri:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: miri
+    - name: Setup
+      run: cargo miri setup
+    - name: Test
+      run: cargo miri test --verbose

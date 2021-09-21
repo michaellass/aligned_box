@@ -1,6 +1,6 @@
 # aligned_box: Allocate aligned heap memory in Rust.
 
-[![build](https://travis-ci.com/michaellass/aligned_box.svg?branch=master)](https://travis-ci.com/michaellass/aligned_box)
+[![CI](https://github.com/michaellass/aligned_box/actions/workflows/ci.yml/badge.svg)](https://github.com/michaellass/aligned_box/actions/workflows/ci.yml)
 [![license](https://img.shields.io/github/license/michaellass/aligned_box.svg)](https://github.com/michaellass/aligned_box/blob/master/LICENSE)
 [![crates.io](https://img.shields.io/crates/v/aligned_box.svg)](https://crates.io/crates/aligned_box)
 [![docs.rs](https://docs.rs/aligned_box/badge.svg)](https://docs.rs/aligned_box)
