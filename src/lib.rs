@@ -1,5 +1,5 @@
 #![warn(missing_docs)]
-#![warn(missing_doc_code_examples)]
+#![warn(rustdoc::missing_doc_code_examples)]
 #![warn(rust_2018_idioms)]
 
 //! Allocate heap memory with user-specified alignment.
