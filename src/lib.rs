@@ -193,7 +193,7 @@ impl<T> AlignedBox<[T]> {
     unsafe fn new_slice(
         alignment: usize,
         nelems: usize,
-        initializer: impl Fn(*mut T) -> (),
+        initializer: impl Fn(*mut T),
     ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
         // Make sure the requested amount of Ts will fit into a slice.
         let maxelems = (isize::MAX as usize) / std::mem::size_of::<T>();
@@ -206,7 +206,7 @@ impl<T> AlignedBox<[T]> {
         // Initialize values. The caller must ensure that initializer does not expect valid
         // values behind ptr.
         for i in 0..nelems {
-            initializer(ptr.offset(i as isize));
+            initializer(ptr.add(i));
         }
 
         // SAFETY:
@@ -236,7 +236,7 @@ impl<T> AlignedBox<[T]> {
     unsafe fn realloc(
         &mut self,
         nelems: usize,
-        initializer: impl Fn(*mut T) -> (),
+        initializer: impl Fn(*mut T),
     ) -> std::result::Result<(), std::boxed::Box<dyn std::error::Error>> {
         // Make sure the requested amount of Ts will fit into a slice.
         let maxelems = (isize::MAX as usize) / std::mem::size_of::<T>();
@@ -294,7 +294,7 @@ impl<T> AlignedBox<[T]> {
         // Initialize newly allocated values. The caller must ensure that
         // initializer does not expect valid values behind ptr.
         for i in old_nelems..nelems {
-            initializer(new_ptr.offset(i as isize));
+            initializer(new_ptr.add(i));
         }
 
         // Create a new slice, a new Box and update layout.
@@ -572,9 +572,9 @@ mod tests {
     fn read_write() {
         let _m = SEQ_TEST_MUTEX.read().unwrap();
 
-        let mut b = AlignedBox::<[f32]>::slice_from_value(128, 1024, 3.1415).unwrap();
+        let mut b = AlignedBox::<[f32]>::slice_from_value(128, 1024, std::f32::consts::PI).unwrap();
         for i in b.iter() {
-            assert_eq!(*i, 3.1415);
+            assert_eq!(*i, std::f32::consts::PI);
         }
         let mut ctr: f32 = 0.0;
         for i in b.iter_mut() {
@@ -609,10 +609,8 @@ mod tests {
 
         let b = AlignedBox::<[SomeVaryingDefault]>::slice_from_default(128, 1024).unwrap();
         assert_eq!(SomeVaryingDefault::default().i, 1024);
-        let mut ctr = 0;
-        for i in b.iter() {
-            assert_eq!(i.i, ctr);
-            ctr += 1;
+        for (ctr, i) in b.iter().enumerate() {
+            assert_eq!(i.i, ctr as i32);
         }
     }
 

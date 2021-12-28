@@ -138,3 +138,16 @@ jobs:
       run: cargo miri setup
     - name: Test
       run: cargo miri test --verbose
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: clippy
+    - name: Lint
+      run: cargo clippy --all-targets --all-features -- -D warnings
