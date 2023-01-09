@@ -1,6 +1,11 @@
 #![warn(missing_docs)]
-#![warn(rustdoc::missing_doc_code_examples)]
+#![warn(nonstandard_style)]
 #![warn(rust_2018_idioms)]
+#![warn(rustdoc::missing_doc_code_examples)]
+#![warn(single_use_lifetimes)]
+#![warn(unsafe_op_in_unsafe_fn)]
+#![warn(unused_crate_dependencies)]
+#![warn(unused)]
 
 //! Allocate heap memory with user-specified alignment.
 
@@ -189,7 +194,6 @@ impl<T> AlignedBox<[T]> {
     // # SAFETY
     // The initializer function has to initialize the value behind the pointer without
     // reading or dropping the old uninitialized value, e.g., using std::ptr::write.
-    #[allow(unused_unsafe)] // https://github.com/rust-lang/rfcs/pull/2585
     unsafe fn new_slice(
         alignment: usize,
         nelems: usize,
@@ -232,7 +236,6 @@ impl<T> AlignedBox<[T]> {
     // # SAFETY
     // The initializer function has to initialize the value behind the pointer without
     // reading or dropping the old uninitialized value, e.g., using std::ptr::write.
-    #[allow(unused_unsafe)] // https://github.com/rust-lang/rfcs/pull/2585
     unsafe fn realloc(
         &mut self,
         nelems: usize,
