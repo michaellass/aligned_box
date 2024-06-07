@@ -647,6 +647,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn min_align() {
         let _m = SEQ_TEST_MUTEX.read().unwrap();
 
