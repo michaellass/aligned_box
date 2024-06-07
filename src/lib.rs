@@ -147,7 +147,7 @@ impl<T> AlignedBox<T> {
 
         let memsize: usize = std::mem::size_of::<T>() * nelems;
         if memsize == 0 {
-            return Err(AlignedBoxError::ZeroAlloc.into());
+            return Err(AlignedBoxError::ZeroAlloc);
         }
 
         let layout = alloc::alloc::Layout::from_size_align(memsize, alignment).map_err(|_| AlignedBoxError::InvalidAlign)?;
@@ -211,7 +211,7 @@ impl<T> AlignedBox<[T]> {
         // Make sure the requested amount of Ts will fit into a slice.
         let maxelems = (isize::MAX as usize) / std::mem::size_of::<T>();
         if nelems > maxelems {
-            return Err(AlignedBoxError::TooManyElements.into());
+            return Err(AlignedBoxError::TooManyElements);
         }
 
         let (ptr, layout) = AlignedBox::<T>::allocate(alignment, nelems)?;
@@ -254,12 +254,12 @@ impl<T> AlignedBox<[T]> {
         // Make sure the requested amount of Ts will fit into a slice.
         let maxelems = (isize::MAX as usize) / std::mem::size_of::<T>();
         if nelems > maxelems {
-            return Err(AlignedBoxError::TooManyElements.into());
+            return Err(AlignedBoxError::TooManyElements);
         }
 
         let memsize: usize = std::mem::size_of::<T>() * nelems;
         if memsize == 0 {
-            return Err(AlignedBoxError::ZeroAlloc.into());
+            return Err(AlignedBoxError::ZeroAlloc);
         }
 
         let old_nelems = self.container.len();
@@ -301,7 +301,7 @@ impl<T> AlignedBox<[T]> {
             // * Nobody owns the memory behind ptr right now.
             let b = unsafe { alloc::boxed::Box::from_raw(ptr) };
             self.container = std::mem::ManuallyDrop::new(b);
-            return Err(AlignedBoxError::OutOfMemory.into());
+            return Err(AlignedBoxError::OutOfMemory);
         }
 
         // Initialize newly allocated values. The caller must ensure that
