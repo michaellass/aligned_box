@@ -5,7 +5,7 @@
 [![crates.io](https://img.shields.io/crates/v/aligned_box.svg)](https://crates.io/crates/aligned_box)
 [![docs.rs](https://docs.rs/aligned_box/badge.svg)](https://docs.rs/aligned_box)
 
-This crate provides a wrapper around `std::boxed::Box` which allows allocating heap memory with user-specified alignment.
+This crate provides a wrapper around the `Box` type, which allows allocating heap memory with user-specified alignment.
 
 ## Examples
 Place value 17 of type `i32` on the heap, aligned to 64 bytes:
