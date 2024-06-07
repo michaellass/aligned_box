@@ -555,6 +555,7 @@ mod tests {
         drop(b);
 
         let mut b = AlignedBox::<[Tracking]>::slice_from_default(128, 3).unwrap();
+        assert_eq!(COUNTER.load(std::sync::atomic::Ordering::Relaxed), 3);
 
         b.realloc_with_default(1).unwrap();
         assert_eq!(COUNTER.load(std::sync::atomic::Ordering::Relaxed), 1);
