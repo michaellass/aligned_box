@@ -1,8 +1,17 @@
+//! Allocate heap memory with user-specified alignment.
+
+#![cfg_attr(all(not(feature = "std"), not(test)), no_std)]
+
 #![warn(missing_docs)]
 #![warn(rustdoc::missing_doc_code_examples)]
 #![warn(rust_2018_idioms)]
 
-//! Allocate heap memory with user-specified alignment.
+extern crate alloc;
+
+
+#[cfg(all(not(feature = "std"), not(test)))]
+extern crate core as std;
+
 
 /// Error type for custom errors of `AlignedBox`.
 #[derive(Debug)]
@@ -13,8 +22,11 @@ pub enum AlignedBoxError {
     OutOfMemory,
     /// Zero byte allocation are currently not supported by AlignedBox.
     ZeroAlloc,
+    /// The alignment provided is not a power of 2
+    InvalidAlign
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for AlignedBoxError {}
 
 impl std::fmt::Display for AlignedBoxError {
@@ -23,16 +35,17 @@ impl std::fmt::Display for AlignedBoxError {
             AlignedBoxError::TooManyElements => write!(f, "Too many elements for a slice."),
             AlignedBoxError::OutOfMemory => write!(f, "Memory allocation failed. Out of memory?"),
             AlignedBoxError::ZeroAlloc => write!(f, "Zero byte allocations not supported."),
+            AlignedBoxError::InvalidAlign => write!(f, "Invalid alignment. Alignment must be a power of 2"),
         }
     }
 }
 
-/// A wrapper around `std::boxed::Box` which allows allocating aligned heap memory. An instance of
-/// `AlignedBox<T>` consists of a `Box<T>` and the `std::alloc::Layout` that has been used to
+/// A wrapper around `alloc::boxed::Box` which allows allocating aligned heap memory. An instance of
+/// `AlignedBox<T>` consists of a `Box<T>` and the `alloc::alloc::Layout` that has been used to
 /// allocate the referenced memory.
 pub struct AlignedBox<T: ?Sized> {
-    container: std::mem::ManuallyDrop<std::boxed::Box<T>>,
-    layout: std::alloc::Layout,
+    container: std::mem::ManuallyDrop<alloc::boxed::Box<T>>,
+    layout: alloc::alloc::Layout,
 }
 
 impl<T: ?Sized> std::ops::Deref for AlignedBox<T> {
@@ -54,13 +67,13 @@ impl<T: ?Sized> Drop for AlignedBox<T> {
         // SAFETY:
         // * self being dropped right now, self.container is not used after taking the Box out of it
         let container = unsafe { std::mem::ManuallyDrop::take(&mut self.container) };
-        let ptr = std::boxed::Box::into_raw(container);
+        let ptr = alloc::boxed::Box::into_raw(container);
         // SAFETY:
         // * value behind ptr is valid for R/W, properly aligned and valid to drop
         // * dealloc is called with layout that has been used for allocation earlier
         unsafe {
             std::ptr::drop_in_place(ptr);
-            std::alloc::dealloc(ptr as *mut u8, self.layout);
+            alloc::alloc::dealloc(ptr as *mut u8, self.layout);
         }
     }
 }
@@ -69,7 +82,7 @@ impl<T: Clone + ?Sized> Clone for AlignedBox<T> {
     fn clone(&self) -> Self {
         // SAFETY:
         // layout is certainly valid as it has already been used to create self
-        let ptr = unsafe { std::alloc::alloc(self.layout) as *mut T };
+        let ptr = unsafe { alloc::alloc::alloc(self.layout) as *mut T };
         if ptr.is_null() {
             panic!("Failed to allocate memory for a clone of AlignedBox");
         }
@@ -96,11 +109,11 @@ impl<T: ?Sized> AlignedBox<T> {
     /// The caller of this function becomes responsible for proper deallocation of the memory
     /// behind the pointer. This can for example be done by reconstructing the `AlignedBox` using
     /// `AlignedBox::from_raw_parts`.
-    pub fn into_raw_parts(mut from: AlignedBox<T>) -> (*mut T, std::alloc::Layout) {
+    pub fn into_raw_parts(mut from: AlignedBox<T>) -> (*mut T, alloc::alloc::Layout) {
         // SAFETY:
         // * from being consumed by this function, from.container is not used anymore afterwards
         let container = unsafe { std::mem::ManuallyDrop::take(&mut from.container) };
-        let ptr = std::boxed::Box::into_raw(container);
+        let ptr = alloc::boxed::Box::into_raw(container);
         let layout = from.layout;
         std::mem::forget(from); // AlignedBox::drop() must not be called
         (ptr, layout)
@@ -116,8 +129,8 @@ impl<T: ?Sized> AlignedBox<T> {
     /// The function is unsafe because improper use can lead to issues, such as double-free. Also,
     /// behavior is undefined if the given layout does not correspond to the one used for
     /// allocation.
-    pub unsafe fn from_raw_parts(ptr: *mut T, layout: std::alloc::Layout) -> AlignedBox<T> {
-        let container = std::mem::ManuallyDrop::new(std::boxed::Box::from_raw(ptr));
+    pub unsafe fn from_raw_parts(ptr: *mut T, layout: alloc::alloc::Layout) -> AlignedBox<T> {
+        let container = std::mem::ManuallyDrop::new(alloc::boxed::Box::from_raw(ptr));
         AlignedBox::<T> { container, layout }
     }
 }
@@ -126,7 +139,7 @@ impl<T> AlignedBox<T> {
     fn allocate(
         mut alignment: usize,
         nelems: usize,
-    ) -> std::result::Result<(*mut T, std::alloc::Layout), std::boxed::Box<dyn std::error::Error>>
+    ) -> std::result::Result<(*mut T, alloc::alloc::Layout), AlignedBoxError>
     {
         if alignment < std::mem::align_of::<T>() {
             alignment = std::mem::align_of::<T>();
@@ -134,16 +147,16 @@ impl<T> AlignedBox<T> {
 
         let memsize: usize = std::mem::size_of::<T>() * nelems;
         if memsize == 0 {
-            return Err(AlignedBoxError::ZeroAlloc.into());
+            return Err(AlignedBoxError::ZeroAlloc);
         }
 
-        let layout = std::alloc::Layout::from_size_align(memsize, alignment)?;
+        let layout = alloc::alloc::Layout::from_size_align(memsize, alignment).map_err(|_| AlignedBoxError::InvalidAlign)?;
 
         // SAFETY:
         // * Requirements on layout are enforced by using from_size_align().
-        let ptr = unsafe { std::alloc::alloc(layout) as *mut T };
+        let ptr = unsafe { alloc::alloc::alloc(layout) as *mut T };
         if ptr.is_null() {
-            return Err(AlignedBoxError::OutOfMemory.into());
+            return Err(AlignedBoxError::OutOfMemory);
         }
 
         Ok((ptr, layout))
@@ -163,7 +176,7 @@ impl<T> AlignedBox<T> {
     pub fn new(
         alignment: usize,
         value: T,
-    ) -> std::result::Result<AlignedBox<T>, std::boxed::Box<dyn std::error::Error>> {
+    ) -> std::result::Result<AlignedBox<T>, AlignedBoxError> {
         let (ptr, layout) = AlignedBox::<T>::allocate(alignment, 1)?;
 
         // ptr is not a valid instance of T but uninitialized memory. We have to write to it without
@@ -194,11 +207,11 @@ impl<T> AlignedBox<[T]> {
         alignment: usize,
         nelems: usize,
         initializer: impl Fn(*mut T),
-    ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
+    ) -> std::result::Result<AlignedBox<[T]>, AlignedBoxError> {
         // Make sure the requested amount of Ts will fit into a slice.
         let maxelems = (isize::MAX as usize) / std::mem::size_of::<T>();
         if nelems > maxelems {
-            return Err(AlignedBoxError::TooManyElements.into());
+            return Err(AlignedBoxError::TooManyElements);
         }
 
         let (ptr, layout) = AlignedBox::<T>::allocate(alignment, nelems)?;
@@ -224,7 +237,7 @@ impl<T> AlignedBox<[T]> {
         Ok(b)
     }
 
-    // Resize the given AlignedBox<[T]> using std::alloc::realloc. Any newly allocated
+    // Resize the given AlignedBox<[T]> using alloc::alloc::realloc. Any newly allocated
     // elements will be initialized using the initializer. In case the slice is to be
     // shrunk but realloc fails, any elements that have been dropped are reinitialized
     // using the initializer.
@@ -237,26 +250,26 @@ impl<T> AlignedBox<[T]> {
         &mut self,
         nelems: usize,
         initializer: impl Fn(*mut T),
-    ) -> std::result::Result<(), std::boxed::Box<dyn std::error::Error>> {
+    ) -> std::result::Result<(), AlignedBoxError> {
         // Make sure the requested amount of Ts will fit into a slice.
         let maxelems = (isize::MAX as usize) / std::mem::size_of::<T>();
         if nelems > maxelems {
-            return Err(AlignedBoxError::TooManyElements.into());
+            return Err(AlignedBoxError::TooManyElements);
         }
 
         let memsize: usize = std::mem::size_of::<T>() * nelems;
         if memsize == 0 {
-            return Err(AlignedBoxError::ZeroAlloc.into());
+            return Err(AlignedBoxError::ZeroAlloc);
         }
 
         let old_nelems = self.container.len();
-        let new_layout = std::alloc::Layout::from_size_align(memsize, self.layout.align())?;
+        let new_layout = alloc::alloc::Layout::from_size_align(memsize, self.layout.align()).map_err(|_| AlignedBoxError::InvalidAlign)?;
 
         // SAFETY:
         // * self.container is not used afterwards but re-assigned with a new
-        //   instance of std::mem::ManuallyDrop<std::boxed::Box> in all possible cases.
+        //   instance of std::mem::ManuallyDrop<alloc::boxed::Box> in all possible cases.
         let b = unsafe { std::mem::ManuallyDrop::take(&mut self.container) };
-        let ptr = std::boxed::Box::into_raw(b);
+        let ptr = alloc::boxed::Box::into_raw(b);
 
         // Drop any values that will be deallocated by realloc
         for i in nelems..old_nelems {
@@ -273,7 +286,7 @@ impl<T> AlignedBox<[T]> {
         // * new_size > 0 has been explicitly checked before
         // * due to the restrictions of a slice, memsize does not even overflow isize::MAX
         let new_ptr =
-            unsafe { std::alloc::realloc(ptr as *mut u8, self.layout, memsize) as *mut T };
+            unsafe { alloc::alloc::realloc(ptr as *mut u8, self.layout, memsize) as *mut T };
 
         if new_ptr.is_null() {
             // realloc failed. We need to restore a valid state and return an error.
@@ -286,9 +299,9 @@ impl<T> AlignedBox<[T]> {
 
             // SAFETY:
             // * Nobody owns the memory behind ptr right now.
-            let b = unsafe { std::boxed::Box::from_raw(ptr) };
+            let b = unsafe { alloc::boxed::Box::from_raw(ptr) };
             self.container = std::mem::ManuallyDrop::new(b);
-            return Err(AlignedBoxError::OutOfMemory.into());
+            return Err(AlignedBoxError::OutOfMemory);
         }
 
         // Initialize newly allocated values. The caller must ensure that
@@ -305,7 +318,7 @@ impl<T> AlignedBox<[T]> {
         let slice = unsafe { std::slice::from_raw_parts_mut(new_ptr, nelems) };
         // SAFETY:
         // * Nobody else references this slice or the ptr behind it.
-        let b = unsafe { std::boxed::Box::from_raw(slice) };
+        let b = unsafe { alloc::boxed::Box::from_raw(slice) };
         self.container = std::mem::ManuallyDrop::new(b);
         self.layout = new_layout;
 
@@ -330,7 +343,7 @@ impl<T: Default> AlignedBox<[T]> {
     pub fn slice_from_default(
         alignment: usize,
         nelems: usize,
-    ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
+    ) -> std::result::Result<AlignedBox<[T]>, AlignedBoxError> {
         // SAFETY:
         // * The initializer we pass to new_slice does not read or drop the value behind ptr.
         let b = unsafe {
@@ -365,7 +378,7 @@ impl<T: Default> AlignedBox<[T]> {
     pub fn realloc_with_default(
         &mut self,
         nelems: usize,
-    ) -> std::result::Result<(), std::boxed::Box<dyn std::error::Error>> {
+    ) -> std::result::Result<(), AlignedBoxError> {
         // SAFETY:
         // * The initializer we pass to new_slice does not read or drop the value behind ptr.
         unsafe {
@@ -399,7 +412,7 @@ impl<T: Copy> AlignedBox<[T]> {
         alignment: usize,
         nelems: usize,
         value: T,
-    ) -> std::result::Result<AlignedBox<[T]>, std::boxed::Box<dyn std::error::Error>> {
+    ) -> std::result::Result<AlignedBox<[T]>, AlignedBoxError> {
         // SAFETY:
         // * The initializer we pass to new_slice does not read or drop the value behind ptr.
         let b = unsafe {
@@ -433,7 +446,7 @@ impl<T: Copy> AlignedBox<[T]> {
         &mut self,
         nelems: usize,
         value: T,
-    ) -> std::result::Result<(), std::boxed::Box<dyn std::error::Error>> {
+    ) -> std::result::Result<(), AlignedBoxError> {
         // SAFETY:
         // * The initializer we pass to new_slice does not read or drop the value behind ptr.
         unsafe {
@@ -542,6 +555,7 @@ mod tests {
         drop(b);
 
         let mut b = AlignedBox::<[Tracking]>::slice_from_default(128, 3).unwrap();
+        assert_eq!(COUNTER.load(std::sync::atomic::Ordering::Relaxed), 3);
 
         b.realloc_with_default(1).unwrap();
         assert_eq!(COUNTER.load(std::sync::atomic::Ordering::Relaxed), 1);
@@ -634,6 +648,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn min_align() {
         let _m = SEQ_TEST_MUTEX.read().unwrap();
 
