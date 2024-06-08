@@ -121,3 +121,13 @@ jobs:
         components: clippy
     - name: Lint
       run: cargo clippy --all-targets --all-features -- -D warnings
+
+  no-std:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: riscv64gc-unknown-none-elf
+    - name: Build
+      run: cargo build --verbose --no-default-features --target riscv64gc-unknown-none-elf
