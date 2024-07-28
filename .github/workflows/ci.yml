@@ -13,7 +13,7 @@ jobs:
   stable:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
     - name: Build
       run: cargo build --verbose --target x86_64-unknown-linux-gnu
@@ -23,7 +23,7 @@ jobs:
   beta:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@beta
     - name: Build
       run: cargo build --verbose --target x86_64-unknown-linux-gnu
@@ -33,7 +33,7 @@ jobs:
   nightly:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@nightly
     - name: Build
       run: cargo build --verbose --target x86_64-unknown-linux-gnu
@@ -46,7 +46,7 @@ jobs:
       RUSTFLAGS: -Zsanitizer=address
       RUSTDOCFLAGS: -Zsanitizer=address
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@nightly
       with:
         components: rust-src
@@ -61,7 +61,7 @@ jobs:
       RUSTFLAGS: -Zsanitizer=leak
       RUSTDOCFLAGS: -Zsanitizer=leak
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@nightly
       with:
         components: rust-src
@@ -76,7 +76,7 @@ jobs:
       RUSTFLAGS: -Zsanitizer=memory
       RUSTDOCFLAGS: -Zsanitizer=memory
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@nightly
       with:
         components: rust-src
@@ -91,7 +91,7 @@ jobs:
       RUSTFLAGS: -Zsanitizer=thread
       RUSTDOCFLAGS: -Zsanitizer=thread
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@nightly
       with:
         components: rust-src
@@ -103,7 +103,7 @@ jobs:
   miri:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@nightly
       with:
         components: miri
@@ -115,7 +115,7 @@ jobs:
   clippy:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@nightly
       with:
         components: clippy
@@ -125,7 +125,7 @@ jobs:
   no-std:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
       with:
         targets: riscv64gc-unknown-none-elf
