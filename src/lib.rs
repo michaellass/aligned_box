@@ -78,7 +78,7 @@ impl<T: ?Sized> Drop for AlignedBox<T> {
     }
 }
 
-impl<T: Clone + ?Sized> Clone for AlignedBox<T> {
+impl<T: Clone> Clone for AlignedBox<T> {
     fn clone(&self) -> Self {
         // SAFETY:
         // layout is certainly valid as it has already been used to create self
