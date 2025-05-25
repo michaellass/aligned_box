@@ -770,7 +770,7 @@ mod tests {
     #[ignore]
     fn clone_rss() {
         const SIZE: usize = 1024 * 1024 * 100; // 100MiB
-        const DELAY: u64 = 4;
+        const DELAY: u64 = 6;
 
         #[repr(C)]
         #[repr(align(1))]
@@ -786,13 +786,21 @@ mod tests {
         println!("100"); // Stack of this function
         std::thread::sleep(std::time::Duration::from_secs(DELAY));
 
-        let b1 = AlignedBox::new(64, x).unwrap();
+        let mut b1 = AlignedBox::new(64, x).unwrap();
+        b1.a = 8;
         println!("200"); // Stack of this function + 1 element on heap
         std::thread::sleep(std::time::Duration::from_secs(DELAY));
 
-        let b2 = b1.clone();
+        let mut b2 = b1.clone();
+        b2.a = 9;
         println!("300"); // Stack of this function + 2 elements on heap
         std::thread::sleep(std::time::Duration::from_secs(DELAY));
+
+        unsafe {
+            assert_eq!(x.a, 7);
+            assert_eq!(b1.a, 8);
+            assert_eq!(b2.a, 9);
+        }
 
         drop(b2);
         println!("200"); // Stack of this function + 1 element on heap
