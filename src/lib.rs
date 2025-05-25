@@ -128,9 +128,12 @@ impl<T: ?Sized> AlignedBox<T> {
     /// # Safety
     /// The function is unsafe because improper use can lead to issues, such as double-free. Also,
     /// behavior is undefined if the given layout does not correspond to the one used for
-    /// allocation.
+    /// allocation. Refer to the safety notes of alloc::boxed::Box::from_raw for requirements on
+    /// ptr.
     pub unsafe fn from_raw_parts(ptr: *mut T, layout: alloc::alloc::Layout) -> AlignedBox<T> {
-        let container = std::mem::ManuallyDrop::new(alloc::boxed::Box::from_raw(ptr));
+        // SAFETY:
+        // * Meeting requirements on ptr is the responsibility of the caller.
+        let container = std::mem::ManuallyDrop::new(unsafe { alloc::boxed::Box::from_raw(ptr) });
         AlignedBox::<T> { container, layout }
     }
 }
@@ -202,7 +205,6 @@ impl<T> AlignedBox<[T]> {
     // # SAFETY
     // The initializer function has to initialize the value behind the pointer without
     // reading or dropping the old uninitialized value, e.g., using std::ptr::write.
-    #[allow(unused_unsafe)] // https://github.com/rust-lang/rfcs/pull/2585
     unsafe fn new_slice(
         alignment: usize,
         nelems: usize,
@@ -216,10 +218,12 @@ impl<T> AlignedBox<[T]> {
 
         let (ptr, layout) = AlignedBox::<T>::allocate(alignment, nelems)?;
 
-        // Initialize values. The caller must ensure that initializer does not expect valid
-        // values behind ptr.
+        // Initialize values.
+        // SAFETY:
+        // * The caller must ensure that initializer does not expect valid values behind ptr.
+        // * ptr contains nelemens elements
         for i in 0..nelems {
-            initializer(ptr.add(i));
+            initializer(unsafe { ptr.add(i) });
         }
 
         // SAFETY:
@@ -245,7 +249,6 @@ impl<T> AlignedBox<[T]> {
     // # SAFETY
     // The initializer function has to initialize the value behind the pointer without
     // reading or dropping the old uninitialized value, e.g., using std::ptr::write.
-    #[allow(unused_unsafe)] // https://github.com/rust-lang/rfcs/pull/2585
     unsafe fn realloc(
         &mut self,
         nelems: usize,
@@ -277,7 +280,9 @@ impl<T> AlignedBox<[T]> {
             // * (*ptr)[i] is valid for R/W, properly aligned and valid to drop
             // * the element will not be read as it will either be re-initialized using
             //   std::ptr::write or the slice behind ptr will not be used anymore.
-            std::ptr::drop_in_place(&mut (*ptr)[i]);
+            unsafe {
+                std::ptr::drop_in_place(&mut (*ptr)[i]);
+            }
         }
 
         // SAFETY:
@@ -291,10 +296,14 @@ impl<T> AlignedBox<[T]> {
         if new_ptr.is_null() {
             // realloc failed. We need to restore a valid state and return an error.
 
-            // Reinitialize previously dropped values. The caller must ensure that
-            // initializer does not expect valid values behind ptr.
+            // Reinitialize previously dropped values.
+            // SAFETY:
+            // * The caller must ensure that initializer does not expect valid values behind ptr.
+            // * Since realloc failed, ptr still contains old_nelems elements.
             for i in nelems..old_nelems {
-                initializer(&mut (*ptr)[i]);
+                unsafe {
+                    initializer(&mut (*ptr)[i]);
+                }
             }
 
             // SAFETY:
@@ -304,10 +313,12 @@ impl<T> AlignedBox<[T]> {
             return Err(AlignedBoxError::OutOfMemory);
         }
 
-        // Initialize newly allocated values. The caller must ensure that
-        // initializer does not expect valid values behind ptr.
+        // Initialize newly allocated values.
+        // SAFETY:
+        // * The caller must ensure that initializer does not expect valid values behind ptr.
+        // * new_ptr contains nelems elements.
         for i in old_nelems..nelems {
-            initializer(new_ptr.add(i));
+            initializer(unsafe { new_ptr.add(i) });
         }
 
         // Create a new slice, a new Box and update layout.
