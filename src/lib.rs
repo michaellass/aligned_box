@@ -8,10 +8,8 @@
 
 extern crate alloc;
 
-
 #[cfg(all(not(feature = "std"), not(test)))]
 extern crate core as std;
-
 
 /// Error type for custom errors of `AlignedBox`.
 #[derive(Debug)]
@@ -23,7 +21,7 @@ pub enum AlignedBoxError {
     /// Zero byte allocation are currently not supported by AlignedBox.
     ZeroAlloc,
     /// The alignment provided is not a power of 2
-    InvalidAlign
+    InvalidAlign,
 }
 
 #[cfg(feature = "std")]
@@ -35,7 +33,9 @@ impl std::fmt::Display for AlignedBoxError {
             AlignedBoxError::TooManyElements => write!(f, "Too many elements for a slice."),
             AlignedBoxError::OutOfMemory => write!(f, "Memory allocation failed. Out of memory?"),
             AlignedBoxError::ZeroAlloc => write!(f, "Zero byte allocations not supported."),
-            AlignedBoxError::InvalidAlign => write!(f, "Invalid alignment. Alignment must be a power of 2"),
+            AlignedBoxError::InvalidAlign => {
+                write!(f, "Invalid alignment. Alignment must be a power of 2")
+            }
         }
     }
 }
@@ -142,8 +142,7 @@ impl<T> AlignedBox<T> {
     fn allocate(
         mut alignment: usize,
         nelems: usize,
-    ) -> std::result::Result<(*mut T, alloc::alloc::Layout), AlignedBoxError>
-    {
+    ) -> std::result::Result<(*mut T, alloc::alloc::Layout), AlignedBoxError> {
         if alignment < std::mem::align_of::<T>() {
             alignment = std::mem::align_of::<T>();
         }
@@ -153,7 +152,8 @@ impl<T> AlignedBox<T> {
             return Err(AlignedBoxError::ZeroAlloc);
         }
 
-        let layout = alloc::alloc::Layout::from_size_align(memsize, alignment).map_err(|_| AlignedBoxError::InvalidAlign)?;
+        let layout = alloc::alloc::Layout::from_size_align(memsize, alignment)
+            .map_err(|_| AlignedBoxError::InvalidAlign)?;
 
         // SAFETY:
         // * Requirements on layout are enforced by using from_size_align().
@@ -176,10 +176,7 @@ impl<T> AlignedBox<T> {
     ///
     /// let b = AlignedBox::<i32>::new(64, 17);
     /// ```
-    pub fn new(
-        alignment: usize,
-        value: T,
-    ) -> std::result::Result<AlignedBox<T>, AlignedBoxError> {
+    pub fn new(alignment: usize, value: T) -> std::result::Result<AlignedBox<T>, AlignedBoxError> {
         let (ptr, layout) = AlignedBox::<T>::allocate(alignment, 1)?;
 
         // ptr is not a valid instance of T but uninitialized memory. We have to write to it without
@@ -266,7 +263,8 @@ impl<T> AlignedBox<[T]> {
         }
 
         let old_nelems = self.container.len();
-        let new_layout = alloc::alloc::Layout::from_size_align(memsize, self.layout.align()).map_err(|_| AlignedBoxError::InvalidAlign)?;
+        let new_layout = alloc::alloc::Layout::from_size_align(memsize, self.layout.align())
+            .map_err(|_| AlignedBoxError::InvalidAlign)?;
 
         // SAFETY:
         // * self.container is not used afterwards but re-assigned with a new
