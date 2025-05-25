@@ -2,9 +2,17 @@
 
 #![cfg_attr(all(not(feature = "std"), not(test)), no_std)]
 
-#![warn(missing_docs)]
-#![warn(rustdoc::missing_doc_code_examples)]
-#![warn(rust_2018_idioms)]
+// #![deny(missing_docs)]
+// #![deny(warnings)]
+// #![deny(deprecated_safe)]
+// #![deny(future_incompatible)]
+// #![deny(keyword_idents)]
+// #![deny(let_underscore)]
+// #![deny(nonstandard_style)]
+// #![deny(refining_impl_trait)]
+// #![deny(rust_2018_idioms)]
+// #![deny(unused)]
+// #![deny(rustdoc::missing_doc_code_examples)]
 
 extern crate alloc;
 
