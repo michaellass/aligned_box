@@ -274,22 +274,53 @@ impl<T> AlignedBox<[T]> {
         let new_layout = alloc::alloc::Layout::from_size_align(memsize, self.layout.align())
             .map_err(|_| AlignedBoxError::InvalidAlign)?;
 
-        // SAFETY:
-        // * self.container is not used afterwards but re-assigned with a new
-        //   instance of std::mem::ManuallyDrop<alloc::boxed::Box> in all possible cases.
+        let align = self.layout.align();
         let b = unsafe { std::mem::ManuallyDrop::take(&mut self.container) };
         let ptr = alloc::boxed::Box::into_raw(b);
+        let elem_ptr = ptr as *mut T;
 
-        // Drop any values that will be deallocated by realloc
-        for i in nelems..old_nelems {
-            // SAFETY:
-            // * (*ptr)[i] is valid for R/W, properly aligned and valid to drop
-            // * the element will not be read as it will either be re-initialized using
-            //   std::ptr::write or the slice behind ptr will not be used anymore.
-            unsafe {
-                std::ptr::drop_in_place(&mut (*ptr)[i]);
+        // Drop the tail elements, back to front. Each element's Drop is
+        // user-controlled and may panic; if it does, `self.container` still
+        // holds the old pointer while ownership has moved to `ptr`, so
+        // `AlignedBox`'s own `Drop` would free those elements a second time --
+        // a double-free reachable from safe Rust. A guard restores
+        // `self.container`/`self.layout` to the still-live prefix `[0..valid]`
+        // on unwind, so every element is freed exactly once.
+        struct ShrinkGuard<T> {
+            container: *mut std::mem::ManuallyDrop<alloc::boxed::Box<[T]>>,
+            layout: *mut alloc::alloc::Layout,
+            elem_ptr: *mut T,
+            valid: usize,
+            align: usize,
+        }
+        impl<T> Drop for ShrinkGuard<T> {
+            fn drop(&mut self) {
+                unsafe {
+                    let slice = std::slice::from_raw_parts_mut(self.elem_ptr, self.valid);
+                    let memsize = std::mem::size_of::<T>() * self.valid;
+                    let layout = alloc::alloc::Layout::from_size_align(memsize, self.align)
+                        .expect("prefix layout is valid");
+                    *self.container =
+                        std::mem::ManuallyDrop::new(alloc::boxed::Box::from_raw(slice));
+                    *self.layout = layout;
+                }
             }
         }
+
+        let mut guard = ShrinkGuard::<T> {
+            container: &mut self.container as *mut _,
+            layout: &mut self.layout as *mut _,
+            elem_ptr,
+            valid: old_nelems,
+            align,
+        };
+        for i in (nelems..old_nelems).rev() {
+            guard.valid = i;
+            unsafe {
+                std::ptr::drop_in_place(elem_ptr.add(i));
+            }
+        }
+        std::mem::forget(guard);
 
         // SAFETY:
         // * ptr has been assigned by the same (that is: global) allocator
@@ -809,5 +840,46 @@ mod tests {
         drop(b1);
         println!("100"); // Stack of this function
         std::thread::sleep(std::time::Duration::from_secs(DELAY));
+    }
+
+    #[test]
+    fn realloc_shrink_panicking_drop_is_sound() {
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let _m = SEQ_TEST_MUTEX.read().unwrap();
+
+        static FIRED: AtomicBool = AtomicBool::new(false);
+
+        #[derive(Clone)]
+        struct PanicOnDrop {
+            heap: String,
+        }
+        impl Default for PanicOnDrop {
+            fn default() -> Self {
+                PanicOnDrop { heap: "x".repeat(64) }
+            }
+        }
+        impl Drop for PanicOnDrop {
+            fn drop(&mut self) {
+                let _ = self.heap.len();
+                if !FIRED.swap(true, Ordering::SeqCst) {
+                    panic!("drop panic");
+                }
+            }
+        }
+
+        // Shrink the box; realloc drops the tail elements. A panic in an
+        // element's Drop leaves self.container pointing at the half-processed
+        // buffer, and AlignedBox's Drop then frees it again -- a double-free.
+        let mut b: AlignedBox<[PanicOnDrop]> =
+            AlignedBox::slice_from_default(64, 8).unwrap();
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = b.realloc_with_default(2);
+        }));
+        assert!(result.is_err(), "expected an element Drop to unwind");
+
+        drop(b);
     }
 }
